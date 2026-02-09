@@ -4,6 +4,7 @@ export interface Stock {
   ticker: string;
   change: number; // percentage change
   value: number;  // market cap or volume for sizing
+  currentPrice?: number;
 }
 
 export interface Sector {

@@ -249,17 +249,21 @@ export const Heatmap: React.FC<HeatmapProps> = ({ data, width, height }) => {
           className="absolute z-20 w-64 bg-neutral-950/95 border border-neutral-700 rounded-lg p-4 shadow-2xl backdrop-blur-md pointer-events-none"
           style={{
             left: Math.min(mousePos.x + 20, width - 280),
-            top: Math.min(mousePos.y + 20, height - 200),
+            top: Math.min(mousePos.y + 20, height - 380),
           }}
         >
           <h3 className="text-white font-bold mb-2 border-b border-neutral-800 pb-1 flex justify-between items-center">
             <span>{data.children.find(s => s.id === hoveredSector)?.name}</span>
             <span className="text-[10px] text-neutral-500 font-normal">Sector View</span>
           </h3>
-          <ul className="space-y-1 max-h-48 overflow-y-auto">
+          <ul className="space-y-1">
             {data.children
               .find(s => s.id === hoveredSector)
-              ?.children.map(stock => (
+              ?.children
+              .slice()
+              .sort((a, b) => b.value - a.value)
+              .slice(0, 10)
+              .map(stock => (
                 <li key={stock.id} className={cn(
                   "flex justify-between text-sm py-0.5 border-b border-neutral-900 last:border-0",
                   hoveredStock?.id === stock.id ? "bg-white/5" : ""

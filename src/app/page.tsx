@@ -1,12 +1,33 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useMemo } from "react";
 import { Heatmap } from "@/components/Heatmap";
-import { mockMarketData } from "@/data/marketData";
+import marketDataJson from "@/data/sample.json";
+import { MarketData } from "@/types/market";
+
+// Transform sample.json to MarketData format
+const transformData = (json: typeof marketDataJson): MarketData => {
+  return {
+    name: json.date,
+    children: json.groups.map((group) => ({
+      id: group.group,
+      name: group.group,
+      children: group.nodes.map((node) => ({
+        id: node.code,
+        name: node.name,
+        ticker: node.code,
+        change: Number((node.cv * 100).toFixed(2)),
+        value: node.sv,
+        currentPrice: node.lv,
+      })),
+    })),
+  };
+};
 
 export default function Home() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const marketData = useMemo(() => transformData(marketDataJson), []);
 
   useEffect(() => {
     const updateDimensions = () => {
@@ -73,7 +94,7 @@ export default function Home() {
         <div ref={containerRef} className="w-full">
           {dimensions.width > 0 && (
             <Heatmap
-              data={mockMarketData}
+              data={marketData}
               width={dimensions.width}
               height={dimensions.height}
             />
@@ -96,7 +117,7 @@ export default function Home() {
             </div>
             <div className="flex flex-col">
               <span className="text-neutral-500 font-bold mb-1 uppercase tracking-tighter">Updated</span>
-              <span>2026-02-09 16:26:01</span>
+              <span>{marketDataJson.date}</span>
             </div>
           </div>
         </footer>
