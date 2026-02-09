@@ -21,7 +21,8 @@ export const Heatmap: React.FC<HeatmapProps> = ({ data, width, height }) => {
   const [hoveredSector, setHoveredSector] = useState<string | null>(null);
   const [hoveredStock, setHoveredStock] = useState<Stock | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const [transform, setTransform] = useState(d3.zoomIdentity);
+  const transformRef = useRef(d3.zoomIdentity);
+  const [zoomK, setZoomK] = useState(1);
 
   // 1. Treemap Layout Calculation
   const root = useMemo(() => {
@@ -60,6 +61,7 @@ export const Heatmap: React.FC<HeatmapProps> = ({ data, width, height }) => {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    const transform = transformRef.current;
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
@@ -89,45 +91,58 @@ export const Heatmap: React.FC<HeatmapProps> = ({ data, width, height }) => {
         ctx.lineWidth = 0.5 / transform.k;
         ctx.strokeRect(x, y, w, h);
 
-        // Text Rendering - Improved Algorithm
-        const area = w * h;
-        const sideLength = Math.sqrt(area);
-        // Calculate font size based on area but constrained by dimensions to prevent overflow
-        let fontSizeName = Math.max(8, Math.min(sideLength * 0.12, w * 0.7 / stock.name.length * 1.2, h * 0.35));
+        // Text Rendering - Dynamic Scaling
+        const screenW = w * transform.k;
+        const screenH = h * transform.k;
         
-        // Boost size for very large blocks to ensure "Giants" stand out, but more subtly
-        if (sideLength > 100) fontSizeName *= 1.1;
-        fontSizeName = Math.min(fontSizeName, 64); // Cap at 64px for a cleaner look
+        // a = -0.15 is conservative for zoom-growth
+        const scaleFactor = Math.pow(transform.k, -0.15); 
+        let fontSizeName = Math.min(
+          w * 0.28, // Conservative width-based cap
+          h * 0.28, // Conservative height-based cap
+          Math.sqrt(w * h) * 0.11 * scaleFactor // Area-based base size
+        );
 
-        if (w > 15 / transform.k && h > 10 / transform.k) {
+        // Min screen readability check (approx 9px)
+        const minVisibleSize = 9 / transform.k;
+        if (fontSizeName < minVisibleSize) fontSizeName = minVisibleSize;
+
+        if (screenW > 35 && screenH > 25) {
           ctx.fillStyle = "white";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           
-          // Name rendering with dynamic font size
           ctx.font = `bold ${fontSizeName}px sans-serif`;
           
-          // Truncate Name logic using current font
           let displayName = stock.name;
-          const metrics = ctx.measureText(displayName);
-          if (metrics.width > w - 4) {
-             while (ctx.measureText(displayName + "...").width > w - 4 && displayName.length > 0) {
-                displayName = displayName.slice(0, -1);
-             }
-             if (displayName.length < stock.name.length) displayName += "...";
+          // Use a fixed margin in data coordinates but enough for 4-6 screen pixels
+          const margin = 6 / transform.k;
+          
+          // STRICT Truncation: Ensure it never exceeds width
+          if (ctx.measureText(displayName).width > w - margin) {
+            while (ctx.measureText(displayName + "...").width > w - margin && displayName.length > 0) {
+              displayName = displayName.slice(0, -1);
+            }
+            if (displayName.length < stock.name.length && displayName.length > 0) {
+              displayName += "...";
+            }
           }
 
-          const hasSpaceForChange = h > fontSizeName * 1.8;
-          const nameY = hasSpaceForChange ? y + h/2 - fontSizeName * 0.3 : y + h/2;
+          // Final safety check: if still exceeds width, or height is too small, hide
+          const finalMetrics = ctx.measureText(displayName);
+          if (finalMetrics.width > w - (2/transform.k) || fontSizeName > h * 0.8) return;
+
+          const hasSpaceForChange = h > fontSizeName * 2.8;
+          const nameY = hasSpaceForChange ? y + h/2 - (fontSizeName * 0.5) : y + h/2;
           
           ctx.fillText(displayName, x + w/2, nameY);
 
           // Change % Rendering
           if (hasSpaceForChange) {
-            const fontSizeChange = fontSizeName * 0.7;
+            const fontSizeChange = fontSizeName * 0.75;
             ctx.font = `${fontSizeChange}px sans-serif`;
-            ctx.fillStyle = "rgba(255,255,255,0.7)";
-            ctx.fillText(`${stock.change > 0 ? "+" : ""}${stock.change}%`, x + w/2, nameY + fontSizeName * 1.0);
+            ctx.fillStyle = "rgba(255,255,255,0.8)";
+            ctx.fillText(`${stock.change > 0 ? "+" : ""}${stock.change}%`, x + w/2, nameY + fontSizeName * 1.2);
           }
         }
       });
@@ -138,14 +153,15 @@ export const Heatmap: React.FC<HeatmapProps> = ({ data, width, height }) => {
       ctx.strokeRect(sectorNode.x0, sectorNode.y0, sectorNode.x1 - sectorNode.x0, sectorNode.y1 - sectorNode.y0);
 
       // Sector Label
+      const sectorFontSize = 13 / transform.k; // Maintains a consistent screen size of ~13px
       ctx.fillStyle = isSectorHovered ? "white" : "#999";
-      ctx.font = `bold ${12 / transform.k}px sans-serif`;
+      ctx.font = `bold ${sectorFontSize}px sans-serif`;
       ctx.textAlign = "left";
-      ctx.fillText(sectorNode.data.name, sectorNode.x0 + 8/transform.k, sectorNode.y0 + 16/transform.k);
+      ctx.fillText(sectorNode.data.name, sectorNode.x0 + 8/transform.k, sectorNode.y0 + (sectorFontSize * 1.3));
     });
 
     ctx.restore();
-  }, [root, width, height, transform, hoveredSector]);
+  }, [root, width, height, hoveredSector]);
 
   // 3. Zoom Handling
   useEffect(() => {
@@ -157,7 +173,8 @@ export const Heatmap: React.FC<HeatmapProps> = ({ data, width, height }) => {
       .translateExtent([[0, 0], [width, height]])
       .extent([[0, 0], [width, height]])
       .on("zoom", (event) => {
-        setTransform(event.transform);
+        transformRef.current = event.transform;
+        setZoomK(event.transform.k);
       });
 
     d3.select(canvas).call(zoom);
@@ -168,11 +185,12 @@ export const Heatmap: React.FC<HeatmapProps> = ({ data, width, height }) => {
 
   // 4. Request Animation Frame for Drawing
   useEffect(() => {
+    let animId: number;
     const render = () => {
       draw();
-      requestAnimationFrame(render);
+      animId = requestAnimationFrame(render);
     };
-    const animId = requestAnimationFrame(render);
+    animId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animId);
   }, [draw]);
 
@@ -184,6 +202,7 @@ export const Heatmap: React.FC<HeatmapProps> = ({ data, width, height }) => {
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
 
+    const transform = transformRef.current;
     // Convert screen coordinates to data coordinates
     const dataX = (mx - transform.x) / transform.k;
     const dataY = (my - transform.y) / transform.k;
@@ -239,7 +258,7 @@ export const Heatmap: React.FC<HeatmapProps> = ({ data, width, height }) => {
           Reset View
         </button>
         <div className="bg-neutral-900/80 text-neutral-400 text-[10px] px-2 py-1 rounded border border-neutral-700 backdrop-blur-sm">
-          Zoom: {Math.round(transform.k * 100)}%
+          Zoom: {Math.round(zoomK * 100)}%
         </div>
       </div>
 
